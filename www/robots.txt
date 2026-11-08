@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /api/
+Disallow: /c/
+
+Sitemap: https://etiquettes.copycolor.fr/sitemap.xml
