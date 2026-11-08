@@ -1,0 +1,45 @@
+# etiquettes.copycolor.fr — Apache (hébergement mutualisé OVH)
+
+Options -Indexes
+DirectoryIndex index.html
+AddType application/manifest+json .webmanifest
+
+# HTTPS obligatoire
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# Fichiers cachés interdits
+RewriteRule (^|/)\. - [F]
+
+# Configurateur
+RewriteRule ^composer/?$ composer.html [L]
+
+# API et page de suivi → index.php
+RewriteRule ^(api|c)/ index.php [L,QSA]
+
+# Images importées jusqu'à 15 Mo
+<IfModule mod_php7.c>
+    php_value upload_max_filesize 16M
+    php_value post_max_size 17M
+    php_value memory_limit 128M
+</IfModule>
+<IfModule mod_php.c>
+    php_value upload_max_filesize 16M
+    php_value post_max_size 17M
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Frame-Options "DENY"
+    Header always set Strict-Transport-Security "max-age=31536000"
+</IfModule>
+
+# Fonds illustrés et logos : cache long (le nom change si l'image change)
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 30 days"
+    ExpiresByType image/png "access plus 30 days"
+</IfModule>

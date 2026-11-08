@@ -1,0 +1,75 @@
+name: Deploy → OVH (etiquettes.copycolor.fr)
+
+# À chaque push sur main : envoie app/, www/, cron/ et sql/ dans le dossier etiquettes/ de l'hébergement OVH.
+# Jamais touchés : config/config.php (mots de passe) et etiquettes-data/ (images clients, journaux).
+# Les imports SQL restent à faire à la main dans phpMyAdmin.
+#
+# Secrets (GitHub → site-etiquettes → Settings → Secrets and variables → Actions) :
+#   OVH_SSH_KEY     clé privée SSH (la même que pour les autres sites)
+#   OVH_HOST        ex. ssh.cluster0xx.hosting.ovh.net
+#   OVH_USER        identifiant SSH OVH
+#   OVH_CUSTOM_PATH chemin absolu du dossier du site (celui qui contient www/, app/, config/) — ou de son www/
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ovh-etiquettes
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Vérifier les secrets
+        env:
+          OVH_CUSTOM_PATH: ${{ secrets.OVH_CUSTOM_PATH }}
+          OVH_HOST: ${{ secrets.OVH_HOST }}
+          OVH_USER: ${{ secrets.OVH_USER }}
+          OVH_SSH_KEY: ${{ secrets.OVH_SSH_KEY }}
+        run: |
+          ok=1
+          for v in OVH_SSH_KEY OVH_HOST OVH_USER OVH_CUSTOM_PATH; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v absent ou vide dans site-etiquettes"; ok=0; else echo "$v : présent"; fi
+          done
+          [ $ok = 1 ] || exit 1
+
+      - name: Configurer SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.OVH_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H ${{ secrets.OVH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Trouver le dossier du site sur OVH
+        run: |
+          # On accepte le dossier du site ou son sous-dossier www/.
+          # Sécurité : il contient déjà config/config.php, ou (première installation) il s'appelle « etiquettes ».
+          BASE=$(ssh -i ~/.ssh/id_deploy "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" 'P="${{ secrets.OVH_CUSTOM_PATH }}"; P="${P%/}"
+            for d in "$P" "$(dirname "$P")"; do
+              if [ -f "$d/config/config.php" ]; then echo "$d"; exit 0; fi
+            done
+            for d in "$P" "$(dirname "$P")"; do
+              if [ -d "$d" ] && [ "$(basename "$d")" = "etiquettes" ]; then echo "$d"; exit 0; fi
+            done; exit 1') || { echo "::error::OVH_CUSTOM_PATH ne pointe pas vers le dossier etiquettes (ou son www/)"; exit 1; }
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          echo "Dossier du site trouvé"
+
+      - name: Envoyer les fichiers
+        run: |
+          rsync -rlptz -e "ssh -i ~/.ssh/id_deploy" \
+            --exclude='.DS_Store' \
+            app www cron sql "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:$BASE/"
+          ssh -i ~/.ssh/id_deploy "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" "mkdir -p '$BASE/config'"
+          rsync -rlptz -e "ssh -i ~/.ssh/id_deploy" config/config.sample.php "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}:$BASE/config/"
+
+      - name: Fini
+        run: |
+          echo "✓ etiquettes.copycolor.fr mis à jour ($(git rev-parse --short HEAD))"
+          ssh -i ~/.ssh/id_deploy "${{ secrets.OVH_USER }}@${{ secrets.OVH_HOST }}" "[ -f '$BASE/config/config.php' ]" \
+            || echo "::warning::config/config.php absent : copier config.sample.php en config.php et le remplir (voir README)"
