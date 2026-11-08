@@ -28,6 +28,7 @@ final class App
         $this->cfg = $cfg;
         $this->db = new Db($cfg['db']);
         $this->storage = new Storage($cfg['data_dir']);
+        Catalog::setPricesFile(rtrim($cfg['data_dir'], '/') . '/tarifs.json');
         $this->mailer = new Mailer($cfg['mail'], $this->db, $this->storage);
         $this->images = new Images($this->db, $this->storage, $cfg);
         $this->orders = new Orders($this->db, $this->storage, $this->images, $this->mailer,
@@ -80,6 +81,11 @@ final class App
             Response::json(201, $this->orders->create($q->json(), $q->ip));
         });
 
+        $r->add('GET', '/api/tarifs', function (Request $q) {
+            header('Cache-Control: public, max-age=60');
+            Response::json(200, Catalog::publicPrices());
+        });
+
         // ─── Page de suivi du client ──────────────────────────────────────
         $r->add('GET', '/c/{ref}/{token}', function (Request $q) {
             $o = $this->orders->byToken($q->param('ref'), $q->param('token'));
@@ -111,7 +117,14 @@ final class App
                 'server_time' => date('c'),
                 'pending' => (int) $this->db->value("SELECT count(*) FROM orders WHERE status = 'envoyee'"),
                 'schema' => [],
+                'tarifs' => Catalog::prices(),
             ]);
+        }));
+        $r->add('GET', '/api/nas/tarifs', $nas(function (Request $q) {
+            Response::json(200, Catalog::prices());
+        }));
+        $r->add('POST', '/api/nas/tarifs', $nas(function (Request $q) {
+            Response::json(200, Catalog::savePrices($q->json()));
         }));
         $r->add('GET', '/api/nas/orders', $nas(function (Request $q) {
             Response::json(200, ['orders' => $this->orders->nasList(

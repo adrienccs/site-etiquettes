@@ -8,6 +8,17 @@ var PACK_SETS = {
   colo: [['thermo', 2], ['mini', 1], ['ronde', 1], ['chaussure', 1]],
   creche: [['thermo', 3], ['ronde', 1], ['chaussure', 1]]
 };
+// Tarifs : valeurs par défaut, remplacées par celles publiées par l'atelier (/api/tarifs)
+var TARIFS = {
+  packs: [
+    { id: 'senior', label: 'Pack senior', cents: 1900, content: { thermo: 3, mini: 2 } },
+    { id: 'rentree', label: 'Pack rentrée', cents: 2200, content: { thermo: 1, mini: 1, chaussure: 1, ronde: 1, stylo: 1 } },
+    { id: 'colo', label: 'Pack colo & sport', cents: 2400, content: { thermo: 2, mini: 1, ronde: 1, chaussure: 1 } },
+    { id: 'creche', label: 'Pack crèche', cents: 2900, content: { thermo: 3, ronde: 1, chaussure: 1 } }
+  ],
+  unit: { thermo: 300, adhesive: 200 }
+};
+function eur(c) { return (c % 100 ? (c / 100).toFixed(2).replace('.', ',') : String(c / 100)) + ' €'; }
 function packPlanches(id) {
   return (PACK_SETS[id] || PACK_SETS.rentree).map(function (x, i) { return { id: i + 1, product: x[0], qty: x[1], own: null }; });
 }
@@ -36,6 +47,11 @@ class Component {
     };
   }
   // Carnet gardé dans le navigateur : on le retrouve en revenant sur la page
+  loadTarifs() {
+    fetch('/api/tarifs').then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d && Array.isArray(d.packs) && d.packs.length && d.unit) { TARIFS = d; this.setState({ tarifsAt: Date.now() }); }
+    }).catch(() => { /* prix par défaut */ });
+  }
   save() {
     var s = this.state;
     try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, common: s.common, planches: s.planches, customer: s.customer })); } catch (e) { /* navigation privée */ }
@@ -115,6 +131,7 @@ class Component {
     if (!this._cv && typeof document !== 'undefined') {
       this._cv = document.createElement('canvas').getContext('2d');
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => this.setState({ fontsReady: true }));
+      this.loadTarifs();
     }
     const textW = (text, f, px, bold, spacing) => {
       const ctx = this._cv;
@@ -182,15 +199,10 @@ class Component {
     const big = labelAt(cur, BIG_K, true, false), small = labelAt(cur, K, false, lay.rot);
     const total = s.planches.reduce((a, p) => a + p.qty, 0);
     // Règle : le carnet doit contenir au moins la composition d'un pack.
-    // Prix = pack contenu le plus avantageux + planches en plus (thermo 3 €, autocollante 2 €).
-    const PACKS = [
-      { name: 'Pack senior', price: 19, c: { thermo: 3, mini: 2 } },
-      { name: 'Pack rentrée', price: 22, c: { thermo: 1, mini: 1, chaussure: 1, ronde: 1, stylo: 1 } },
-      { name: 'Pack colo & sport', price: 24, c: { thermo: 2, mini: 1, ronde: 1, chaussure: 1 } },
-      { name: 'Pack crèche', price: 29, c: { thermo: 3, ronde: 1, chaussure: 1 } }
-    ];
+    // Prix = pack contenu le plus avantageux + planches en plus (prix en centimes, publiés par l'atelier).
+    const PACKS = TARIFS.packs.map((p) => ({ name: p.label, price: p.cents, c: p.content }));
     const LBL = { thermo: 'thermocollante', mini: 'mini', chaussure: 'chaussures', ronde: 'rondes', stylo: 'stylo' };
-    const unitEur = (k) => (k === 'thermo' ? 3 : 2);
+    const unitEur = (k) => (k === 'thermo' ? TARIFS.unit.thermo : TARIFS.unit.adhesive);
     const have = {};
     s.planches.forEach((p) => { have[p.product] = (have[p.product] || 0) + p.qty; });
     let best = null;
@@ -300,8 +312,8 @@ class Component {
       setLine2: (e) => this.update({ line2: e.target.value }),
       cartLine: `Mon carnet · ${total} planche${total > 1 ? 's' : ''}`,
       minOk: packOk, minKo: !packOk,
-      priceTxt: packOk ? `${best.price} €` : '\u2014',
-      priceNote: packOk ? `${best.pk.name} (${best.pk.price} €)${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
+      priceTxt: packOk ? eur(best.price) : '\u2014',
+      priceNote: packOk ? `${best.pk.name} (${eur(best.pk.price)})${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
       priceNoteOn: packOk,
       minMsg: packOk ? '' : `Votre carnet doit contenir au moins la composition d\u2019un pack. Pour le ${best.pk.name.toLowerCase()}, ajoutez : ${missingTxt}.`,
       validateStyle: packOk ? '' : 'opacity: .45; cursor: not-allowed',
@@ -319,9 +331,9 @@ class Component {
       errName: (s.fieldErrors || {}).name || '', errEmail: (s.fieldErrors || {}).email || '', errPhone: (s.fieldErrors || {}).phone || '', errConsent: (s.fieldErrors || {}).consent || '',
       hasErrName: !!(s.fieldErrors || {}).name, hasErrEmail: !!(s.fieldErrors || {}).email, hasErrPhone: !!(s.fieldErrors || {}).phone, hasErrConsent: !!(s.fieldErrors || {}).consent,
       orderError: s.orderError, hasOrderError: !!s.orderError, sending: !!s.sending,
-      sendLabel: s.sending ? 'Envoi en cours…' : `Commander · ${packOk ? best.price + ' €' : ''}`,
+      sendLabel: s.sending ? 'Envoi en cours…' : `Commander · ${packOk ? eur(best.price) : ''}`,
       recap: s.planches.map((p) => { const e = eff(p); return { label: `${p.qty} × ${PRODUCTS[p.product].label}`, design: `${(e.name || '').trim() || 'Prénom'}${(e.line2 || '').trim() ? ' ' + e.line2.trim() : ''}` }; }),
-      recapPack: packOk ? `${best.pk.name} ${best.pk.price} €${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
+      recapPack: packOk ? `${best.pk.name} ${eur(best.pk.price)}${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
       newOrder: () => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* rien */ } location.href = '/composer'; },
       sendOrder: () => {
         if (s.sending || !packOk) return;
@@ -329,12 +341,15 @@ class Component {
           picto: e.picto, auto: !!e.auto, pattern: e.pattern || 'uni', textColor: e.textColor || 'auto', imageId: e.customUrl ? (e.imageId || '') : '' }; };
         this.setState({ sending: true, orderError: '', fieldErrors: {} });
         fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          customer: s.customer, consent: !!s.consent, expected_ttc_cents: best.price * 100,
+          customer: s.customer, consent: !!s.consent, expected_ttc_cents: best.price,
           planches: s.planches.map((p) => ({ format: p.product, qty: p.qty, design: designOf(p) }))
         }) })
           .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
           .then(({ ok, d }) => {
-            if (!ok) { this.setState({ sending: false, orderError: d.message || 'Commande impossible, réessayez.', fieldErrors: d.fields || {} }); return; }
+            if (!ok) {
+              if (d.error === 'price_changed') this.loadTarifs();   // tarifs changés entre-temps : on affiche les nouveaux
+              this.setState({ sending: false, orderError: d.message || 'Commande impossible, réessayez.', fieldErrors: d.fields || {} }); return;
+            }
             try { localStorage.removeItem(STORE_KEY); } catch (e) { /* rien */ }
             this.setState({ sending: false, done: Object.assign({ email: s.customer.email }, d) });
             window.scrollTo(0, 0);

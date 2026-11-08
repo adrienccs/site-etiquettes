@@ -111,7 +111,7 @@ final class Orders
             throw new HttpError(409, 'Le prix a changé : ' . Util::euros($ttc) . '. Merci de vérifier avant de valider.', 'price_changed',
                 ['ttc_cents' => $ttc]);
         }
-        $pack = Catalog::PACKS[$quote['pack']];
+        $pack = Catalog::packs()[$quote['pack']];
         $pricing = [
             'pack' => ['id' => $quote['pack'], 'label' => $pack['label'], 'ttc_cents' => $pack['cents']],
             'extras' => $quote['extras'],
