@@ -205,17 +205,31 @@ t('annulation tant que la fabrication n\'a pas commencé', function () use ($cus
 echo "Tarifs publiés par l'atelier\n";
 t('tarifs : défaut, modification signée, prix appliqué, retour', function () use ($customer, $design) {
     $pub = http('GET', '/api/tarifs')['json'];
-    eq(1900, $pub['from_cents']); eq(300, $pub['unit']['thermo']); eq('senior', $pub['packs'][0]['id']);
-    eq(401, http('POST', '/api/nas/tarifs', ['packs' => ['senior' => 100]])['code']);
-    eq(422, nas('POST', '/api/nas/tarifs', ['packs' => ['senior' => 5]])['code']);
+    eq(1900, $pub['from_cents']); eq(300, $pub['unit']['thermo']); eq('senior', $pub['packs'][0]['id']); eq(42, $pub['per']['mini']);
+    $cur = nas('GET', '/api/nas/tarifs')['json'];
+    eq(4, count($cur['packs']));
+    eq(401, http('POST', '/api/nas/tarifs', $cur)['code']);
+    $bad = $cur; $bad['packs'][0]['cents'] = 5;
+    eq(422, nas('POST', '/api/nas/tarifs', $bad)['code']);
+    $bad = $cur; $bad['packs'][1]['id'] = $bad['packs'][0]['id'];
+    eq(422, nas('POST', '/api/nas/tarifs', $bad)['code']);
+    // ancien format {id: centimes} encore accepté
     $r = nas('POST', '/api/nas/tarifs', ['packs' => ['senior' => 1950], 'unit' => ['thermo' => 350]]);
-    eq(200, $r['code']); eq(1950, $r['json']['packs']['senior']); eq(2200, $r['json']['packs']['rentree']);
-    eq(1950, http('GET', '/api/tarifs')['json']['from_cents']);
-    eq(1950, nas('GET', '/api/nas/ping')['json']['tarifs']['packs']['senior']);
+    eq(200, $r['code']); eq(1950, $r['json']['packs'][0]['cents']); eq(4, count($r['json']['packs']));
     $o = http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'expected_ttc_cents' => 1900 + 300,
         'planches' => [['format' => 'thermo', 'qty' => 4, 'design' => $design], ['format' => 'mini', 'qty' => 2, 'design' => $design]]]);
     eq(409, $o['code']); eq(1950 + 350, $o['json']['ttc_cents']);
-    eq(200, nas('POST', '/api/nas/tarifs', ['packs' => ['senior' => 1900], 'unit' => ['thermo' => 300]])['code']);
+    // nouveau pack « école » : 2 stylo + 2 mini à 12 €, devient le moins cher
+    $new = $cur; $new['packs'][] = ['id' => 'ecole', 'label' => 'Pack école', 'cents' => 1200, 'content' => ['stylo' => 2, 'mini' => 2], 'note' => 'Trousse et cahiers', 'badge' => false];
+    eq(200, nas('POST', '/api/nas/tarifs', $new)['code']);
+    $pub = http('GET', '/api/tarifs')['json'];
+    eq('ecole', $pub['packs'][0]['id']); eq(1200, $pub['from_cents']);
+    $o = http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'expected_ttc_cents' => 1400,
+        'planches' => [['format' => 'stylo', 'qty' => 3, 'design' => $design], ['format' => 'mini', 'qty' => 2, 'design' => $design]]]);
+    eq(201, $o['code'], json_encode($o['json'])); eq(1400, $o['json']['ttc_cents']);
+    eq('ecole', nas('GET', '/api/nas/orders/' . $o['json']['ref'])['json']['pricing']['pack']['id']);
+    eq(200, nas('POST', '/api/nas/tarifs', $cur)['code']);
+    eq(1900, http('GET', '/api/tarifs')['json']['from_cents']);
 });
 
 echo "Tâche planifiée\n";
