@@ -20,7 +20,9 @@ var TARIFS = {
 };
 function eur(c) { return (c % 100 ? (c / 100).toFixed(2).replace('.', ',') : String(c / 100)) + ' €'; }
 function packPlanches(id) {
-  return (PACK_SETS[id] || PACK_SETS.rentree).map(function (x, i) { return { id: i + 1, product: x[0], qty: x[1], own: null }; });
+  var pk = TARIFS.packs.filter(function (p) { return p.id === id; })[0];
+  var set = pk ? Object.keys(pk.content).map(function (f) { return [f, pk.content[f]]; }) : (PACK_SETS[id] || PACK_SETS.rentree);
+  return set.map(function (x, i) { return { id: i + 1, product: x[0], qty: x[1], own: null }; });
 }
 function loadSaved() {
   try { var d = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); return d && d.v === 1 ? d : null; } catch (e) { return null; }
@@ -30,12 +32,13 @@ class Component {
   constructor(props) {
     this.props = props;
     // Design commun à tout le carnet ; chaque planche peut avoir son design perso (own) qui prend le dessus
-    var pack = (location.search.match(/[?&]pack=([a-z]+)/) || [])[1];
+    var pack = (location.search.match(/[?&]pack=([a-z0-9-]+)/) || [])[1];
     var saved = loadSaved();
     var planches = pack ? packPlanches(pack) : (saved && saved.planches && saved.planches.length ? saved.planches : packPlanches('rentree'));
     var common = Object.assign({ name: '', line2: '', font: 'fredoka', color: 'lime', picto: 'i-licorne', auto: true, customUrl: '', imageId: '', pattern: 'uni', textColor: 'auto' },
       saved ? saved.common : {});
     if (pack) history.replaceState(null, '', '/composer');
+    this._pack = pack || null;   // composition définitive au chargement des tarifs (packs modifiables dans l'atelier)
     this.state = {
       common: common, planches: planches,
       sel: planches[0].id, nextId: Math.max.apply(null, planches.map(function (p) { return p.id; })) + 1, scope: 'all',
@@ -49,7 +52,15 @@ class Component {
   // Carnet gardé dans le navigateur : on le retrouve en revenant sur la page
   loadTarifs() {
     fetch('/api/tarifs').then((r) => (r.ok ? r.json() : null)).then((d) => {
-      if (d && Array.isArray(d.packs) && d.packs.length && d.unit) { TARIFS = d; this.setState({ tarifsAt: Date.now() }); }
+      if (!(d && Array.isArray(d.packs) && d.packs.length && d.unit)) return;
+      TARIFS = d;
+      const patch = { tarifsAt: Date.now() };
+      if (this._pack && TARIFS.packs.some((p) => p.id === this._pack)) {
+        const pl = packPlanches(this._pack);
+        Object.assign(patch, { planches: pl, sel: pl[0].id, nextId: pl.length + 1 });
+      }
+      this._pack = null;
+      this.setState(patch);
     }).catch(() => { /* prix par défaut */ });
   }
   save() {
