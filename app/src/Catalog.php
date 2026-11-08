@@ -23,10 +23,10 @@ final class Catalog
         'stylo'     => ['label' => 'Stylo', 'per' => 32, 'kind' => 'adhesive'],
     ];
 
-    /** Prix d'une planche en plus, en centimes TTC */
+    /** Prix par défaut d'une planche en plus, en centimes TTC (modifiables depuis l'atelier : tarifs.json) */
     public const UNIT_CENTS = ['thermo' => 300, 'mini' => 200, 'chaussure' => 200, 'ronde' => 200, 'stylo' => 200];
 
-    /** Packs de 5 planches, du moins cher au plus cher */
+    /** Packs de 5 planches, du moins cher au plus cher (prix par défaut, modifiables depuis l'atelier) */
     public const PACKS = [
         'senior'  => ['label' => 'Pack senior', 'cents' => 1900, 'content' => ['thermo' => 3, 'mini' => 2]],
         'rentree' => ['label' => 'Pack rentrée', 'cents' => 2200, 'content' => ['thermo' => 1, 'mini' => 1, 'chaussure' => 1, 'ronde' => 1, 'stylo' => 1]],
@@ -52,11 +52,121 @@ final class Catalog
      * @param array<string,int> $counts format => nombre de planches
      * @return array{ok:bool, pack?:string, ttc_cents?:int, extras?:array, missing?:array, closest?:string}
      */
+    /** @var string|null fichier des tarifs publiés par l'atelier (data_dir/tarifs.json) */
+    private static $pricesFile = null;
+    /** @var array|null */
+    private static $prices = null;
+
+    public static function setPricesFile(string $file): void
+    {
+        self::$pricesFile = $file;
+        self::$prices = null;
+    }
+
+    /** Tarifs en vigueur : {packs: {id: centimes}, unit: {thermo, adhesive}, updated_at} */
+    public static function prices(): array
+    {
+        if (self::$prices !== null) {
+            return self::$prices;
+        }
+        $p = ['packs' => [], 'unit' => ['thermo' => self::UNIT_CENTS['thermo'], 'adhesive' => self::UNIT_CENTS['mini']], 'updated_at' => null];
+        foreach (self::PACKS as $id => $pk) {
+            $p['packs'][$id] = $pk['cents'];
+        }
+        if (self::$pricesFile && is_file(self::$pricesFile)) {
+            $d = json_decode((string) file_get_contents(self::$pricesFile), true);
+            if (is_array($d)) {
+                foreach ($p['packs'] as $id => $_) {
+                    if (isset($d['packs'][$id]) && is_int($d['packs'][$id])) {
+                        $p['packs'][$id] = $d['packs'][$id];
+                    }
+                }
+                foreach (['thermo', 'adhesive'] as $k) {
+                    if (isset($d['unit'][$k]) && is_int($d['unit'][$k])) {
+                        $p['unit'][$k] = $d['unit'][$k];
+                    }
+                }
+                $p['updated_at'] = $d['updated_at'] ?? null;
+            }
+        }
+        return self::$prices = $p;
+    }
+
+    /** Enregistre les tarifs envoyés par l'atelier (centimes TTC, entre 0,50 € et 500 €). */
+    public static function savePrices(array $in): array
+    {
+        $cur = self::prices();
+        $ok = static function ($v): bool {
+            return is_int($v) && $v >= 50 && $v <= 50000;
+        };
+        $out = ['packs' => [], 'unit' => [], 'updated_at' => date('c')];
+        foreach ($cur['packs'] as $id => $c) {
+            $v = $in['packs'][$id] ?? $c;
+            if (!$ok($v)) {
+                throw new HttpError(422, 'Prix invalide pour ' . self::PACKS[$id]['label'] . '.', 'bad_price');
+            }
+            $out['packs'][$id] = $v;
+        }
+        foreach (['thermo', 'adhesive'] as $k) {
+            $v = $in['unit'][$k] ?? $cur['unit'][$k];
+            if (!$ok($v)) {
+                throw new HttpError(422, 'Prix invalide pour la planche ' . $k . '.', 'bad_price');
+            }
+            $out['unit'][$k] = $v;
+        }
+        if (!self::$pricesFile) {
+            throw new \RuntimeException('Fichier des tarifs non configuré');
+        }
+        $tmp = self::$pricesFile . '.tmp';
+        if (file_put_contents($tmp, json_encode($out, JSON_PRETTY_PRINT)) === false || !rename($tmp, self::$pricesFile)) {
+            throw new \RuntimeException('Écriture des tarifs impossible');
+        }
+        self::$prices = null;
+        return self::prices();
+    }
+
+    /** Packs avec leur prix en vigueur. */
+    public static function packs(): array
+    {
+        $p = self::prices();
+        $out = [];
+        foreach (self::PACKS as $id => $pk) {
+            $out[$id] = ['cents' => $p['packs'][$id]] + $pk;
+        }
+        uasort($out, static function ($a, $b) {
+            return $a['cents'] <=> $b['cents'];
+        });
+        return $out;
+    }
+
+    /** Prix d'une planche en plus, par format, en vigueur. */
+    public static function unitCents(): array
+    {
+        $u = self::prices()['unit'];
+        $out = [];
+        foreach (self::FORMATS as $f => $fm) {
+            $out[$f] = $fm['kind'] === 'thermo' ? $u['thermo'] : $u['adhesive'];
+        }
+        return $out;
+    }
+
+    /** Pour l'affichage public (accueil et configurateur). */
+    public static function publicPrices(): array
+    {
+        $packs = [];
+        foreach (self::packs() as $id => $pk) {
+            $packs[] = ['id' => $id, 'label' => $pk['label'], 'cents' => $pk['cents'], 'content' => $pk['content']];
+        }
+        $u = self::prices()['unit'];
+        return ['packs' => $packs, 'unit' => $u, 'from_cents' => $packs[0]['cents'], 'updated_at' => self::prices()['updated_at']];
+    }
+
     public static function quote(array $counts): array
     {
         $best = null;
         $closest = null;
-        foreach (self::PACKS as $id => $p) {
+        $unit = self::unitCents();
+        foreach (self::packs() as $id => $p) {
             $missing = [];
             foreach ($p['content'] as $f => $n) {
                 $lack = $n - ($counts[$f] ?? 0);
@@ -75,8 +185,8 @@ final class Catalog
             foreach ($counts as $f => $n) {
                 $more = $n - ($p['content'][$f] ?? 0);
                 if ($more > 0) {
-                    $extras[] = ['format' => $f, 'qty' => $more, 'unit_ttc_cents' => self::UNIT_CENTS[$f]];
-                    $total += $more * self::UNIT_CENTS[$f];
+                    $extras[] = ['format' => $f, 'qty' => $more, 'unit_ttc_cents' => $unit[$f]];
+                    $total += $more * $unit[$f];
                 }
             }
             if ($best === null || $total < $best['ttc_cents']) {

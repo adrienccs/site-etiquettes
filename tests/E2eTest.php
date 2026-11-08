@@ -202,6 +202,22 @@ t('annulation tant que la fabrication n\'a pas commencé', function () use ($cus
     eq('annulee', $s['status']);
 });
 
+echo "Tarifs publiés par l'atelier\n";
+t('tarifs : défaut, modification signée, prix appliqué, retour', function () use ($customer, $design) {
+    $pub = http('GET', '/api/tarifs')['json'];
+    eq(1900, $pub['from_cents']); eq(300, $pub['unit']['thermo']); eq('senior', $pub['packs'][0]['id']);
+    eq(401, http('POST', '/api/nas/tarifs', ['packs' => ['senior' => 100]])['code']);
+    eq(422, nas('POST', '/api/nas/tarifs', ['packs' => ['senior' => 5]])['code']);
+    $r = nas('POST', '/api/nas/tarifs', ['packs' => ['senior' => 1950], 'unit' => ['thermo' => 350]]);
+    eq(200, $r['code']); eq(1950, $r['json']['packs']['senior']); eq(2200, $r['json']['packs']['rentree']);
+    eq(1950, http('GET', '/api/tarifs')['json']['from_cents']);
+    eq(1950, nas('GET', '/api/nas/ping')['json']['tarifs']['packs']['senior']);
+    $o = http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'expected_ttc_cents' => 1900 + 300,
+        'planches' => [['format' => 'thermo', 'qty' => 4, 'design' => $design], ['format' => 'mini', 'qty' => 2, 'design' => $design]]]);
+    eq(409, $o['code']); eq(1950 + 350, $o['json']['ttc_cents']);
+    eq(200, nas('POST', '/api/nas/tarifs', ['packs' => ['senior' => 1900], 'unit' => ['thermo' => 300]])['code']);
+});
+
 echo "Tâche planifiée\n";
 t('purge sans erreur', function () use ($root) {
     exec('ETIQUETTES_CONFIG=' . escapeshellarg(__DIR__ . '/config.test.php') . ' php ' . escapeshellarg($root . '/cron/purge.php') . ' 2>&1', $out, $code);
