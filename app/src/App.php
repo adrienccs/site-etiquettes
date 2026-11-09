@@ -29,6 +29,7 @@ final class App
         $this->db = new Db($cfg['db']);
         $this->storage = new Storage($cfg['data_dir']);
         Catalog::setPricesFile(rtrim($cfg['data_dir'], '/') . '/tarifs.json');
+        Catalog::setStaffFile(rtrim($cfg['data_dir'], '/') . '/atelier.json');
         $this->mailer = new Mailer($cfg['mail'], $this->db, $this->storage);
         $this->images = new Images($this->db, $this->storage, $cfg);
         $this->orders = new Orders($this->db, $this->storage, $this->images, $this->mailer,
@@ -81,6 +82,16 @@ final class App
             Response::json(201, $this->orders->create($q->json(), $q->ip));
         });
 
+        // Mode atelier : vérification du code (essais limités), sans rien révéler d'autre
+        $r->add('POST', '/api/atelier', function (Request $q) {
+            $this->limiter->hit($q->ip, 'atelier', 8);
+            $code = (string) ($q->json()['code'] ?? '');
+            if (!Catalog::staffCheck($code)) {
+                throw new HttpError(403, 'Code incorrect.', 'bad_staff_code');
+            }
+            Response::json(200, ['ok' => true]);
+        });
+
         $r->add('GET', '/api/tarifs', function (Request $q) {
             header('Cache-Control: public, max-age=60');
             Response::json(200, Catalog::publicPrices());
@@ -118,10 +129,14 @@ final class App
                 'pending' => (int) $this->db->value("SELECT count(*) FROM orders WHERE status = 'envoyee'"),
                 'schema' => [],
                 'tarifs' => Catalog::prices(),
+                'atelier' => Catalog::staffEnabled(),
             ]);
         }));
         $r->add('GET', '/api/nas/tarifs', $nas(function (Request $q) {
             Response::json(200, Catalog::prices());
+        }));
+        $r->add('POST', '/api/nas/atelier', $nas(function (Request $q) {
+            Response::json(200, ['atelier' => Catalog::saveStaff((string) ($q->json()['code'] ?? ''))]);
         }));
         $r->add('POST', '/api/nas/tarifs', $nas(function (Request $q) {
             Response::json(200, Catalog::savePrices($q->json()));

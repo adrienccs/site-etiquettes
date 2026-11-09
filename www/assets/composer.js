@@ -46,8 +46,32 @@ class Component {
       welcome: !common.name, draft: { name: '', line2: '' },
       uploading: false, uploadError: '',
       checkout: false, sending: false, orderError: '', fieldErrors: {}, done: null,
-      customer: (saved && saved.customer) || { name: '', email: '', phone: '' }, consent: false
+      customer: (saved && saved.customer) || { name: '', email: '', phone: '' }, consent: false,
+      // Mode atelier (Ctrl + Alt + E, ou 5 appuis rapides sur « Mon carnet ») : composition libre, code vérifié par le serveur
+      staffCode: (function () { try { return sessionStorage.getItem('cc-atelier') || ''; } catch (e) { return ''; } })(),
+      staffAsk: false, staffInput: '', staffErr: '', staffPrice: ''
     };
+    var self = this;
+    if (typeof document !== 'undefined') {
+      document.addEventListener('keydown', function (e) {
+        if (e.ctrlKey && e.altKey && (e.key === 'e' || e.key === 'E' || e.code === 'KeyE')) {
+          e.preventDefault();
+          self.setState({ staffAsk: true, staffInput: '', staffErr: '' });
+        }
+      });
+    }
+  }
+  staffLogin() {
+    const code = (this.state.staffInput || '').trim();
+    if (!code) return;
+    fetch('/api/atelier', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) })
+      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok) { this.setState({ staffErr: d.message || 'Code incorrect.' }); return; }
+        try { sessionStorage.setItem('cc-atelier', code); } catch (e) { /* rien */ }
+        this.setState({ staffCode: code, staffAsk: false, staffInput: '', staffErr: '' });
+      })
+      .catch(() => this.setState({ staffErr: 'Connexion perdue.' }));
   }
   // Carnet gardé dans le navigateur : on le retrouve en revenant sur la page
   loadTarifs() {
@@ -224,6 +248,13 @@ class Component {
       const o = { pk, missing, price: pk.price + extra, extraN };
       if (!best || (o.missing === 0 && (best.missing > 0 || o.price < best.price)) || (best.missing > 0 && o.missing < best.missing)) best = o;
     });
+    const staffOn = !!s.staffCode;
+    if (staffOn) {   // composition libre : toutes les planches au prix unitaire (ou prix fixé à la main)
+      const unitSum = Object.keys(have).reduce((a, k) => a + have[k] * unitEur(k), 0);
+      const manual = Math.round(parseFloat(String(s.staffPrice || '').replace(',', '.')) * 100);
+      best = { pk: { name: 'Commande atelier', price: 0, c: {} }, missing: 0, extraN: 0,
+        price: s.staffPrice !== '' && manual >= 0 ? manual : unitSum, manual: s.staffPrice !== '' && manual >= 0 };
+    }
     const packOk = best.missing === 0;
     const missingTxt = packOk ? '' : Object.keys(best.pk.c).filter((k) => (have[k] || 0) < best.pk.c[k])
       .map((k) => { const n = best.pk.c[k] - (have[k] || 0); return `${n} planche${n > 1 ? 's' : ''} ${LBL[k]}`; }).join(', ');
@@ -324,7 +355,7 @@ class Component {
       cartLine: `Mon carnet · ${total} planche${total > 1 ? 's' : ''}`,
       minOk: packOk, minKo: !packOk,
       priceTxt: packOk ? eur(best.price) : '\u2014',
-      priceNote: packOk ? `${best.pk.name} (${eur(best.pk.price)})${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
+      priceNote: staffOn ? (best.manual ? 'Commande atelier · prix fixé' : 'Commande atelier · planches au prix unitaire') : packOk ? `${best.pk.name} (${eur(best.pk.price)})${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
       priceNoteOn: packOk,
       minMsg: packOk ? '' : `Votre carnet doit contenir au moins la composition d\u2019un pack. Pour le ${best.pk.name.toLowerCase()}, ajoutez : ${missingTxt}.`,
       validateStyle: packOk ? '' : 'opacity: .45; cursor: not-allowed',
@@ -344,8 +375,21 @@ class Component {
       orderError: s.orderError, hasOrderError: !!s.orderError, sending: !!s.sending,
       sendLabel: s.sending ? 'Envoi en cours…' : `Commander · ${packOk ? eur(best.price) : ''}`,
       recap: s.planches.map((p) => { const e = eff(p); return { label: `${p.qty} × ${PRODUCTS[p.product].label}`, design: `${(e.name || '').trim() || 'Prénom'}${(e.line2 || '').trim() ? ' ' + e.line2.trim() : ''}` }; }),
-      recapPack: packOk ? `${best.pk.name} ${eur(best.pk.price)}${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
+      recapPack: staffOn ? (best.manual ? 'Commande atelier, prix fixé à la main' : 'Commande atelier : planches au prix unitaire') : packOk ? `${best.pk.name} ${eur(best.pk.price)}${best.extraN ? ` + ${best.extraN} planche${best.extraN > 1 ? 's' : ''} en plus` : ''}` : '',
       newOrder: () => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* rien */ } location.href = '/composer'; },
+      staffOn: staffOn, staffAsk: !!s.staffAsk, staffErr: s.staffErr, hasStaffErr: !!s.staffErr,
+      staffInput: s.staffInput, staffPrice: s.staffPrice, staffUnitTxt: eur(Object.keys(have).reduce((a, k) => a + have[k] * unitEur(k), 0)),
+      setStaffInput: (e) => this.setState({ staffInput: e.target.value }),
+      setStaffPrice: (e) => this.setState({ staffPrice: e.target.value }),
+      closeStaff: () => this.setState({ staffAsk: false, staffInput: '', staffErr: '' }),
+      staffKey: (e) => { if (e.key === 'Enter') this.staffLogin(); },
+      staffLogin: () => this.staffLogin(),
+      staffQuit: () => { try { sessionStorage.removeItem('cc-atelier'); } catch (e) { /* rien */ } this.setState({ staffCode: '', staffPrice: '' }); },
+      titleTap: () => {
+        const now = Date.now();
+        this._taps = (this._taps || []).filter((t) => now - t < 1500).concat([now]);
+        if (this._taps.length >= 5) { this._taps = []; this.setState({ staffAsk: true, staffInput: '', staffErr: '' }); }
+      },
       sendOrder: () => {
         if (s.sending || !packOk) return;
         const designOf = (p) => { const e = eff(p); return { name: (e.name || '').trim(), line2: (e.line2 || '').trim(), font: e.font, color: e.color,
@@ -353,15 +397,18 @@ class Component {
         this.setState({ sending: true, orderError: '', fieldErrors: {} });
         fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           customer: s.customer, consent: !!s.consent, expected_ttc_cents: best.price,
+          staff_code: staffOn ? s.staffCode : undefined, staff_ttc_cents: staffOn && best.manual ? best.price : undefined,
           planches: s.planches.map((p) => ({ format: p.product, qty: p.qty, design: designOf(p) }))
         }) })
           .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
           .then(({ ok, d }) => {
             if (!ok) {
+              if (d.error === 'bad_staff_code') { try { sessionStorage.removeItem('cc-atelier'); } catch (e) { /* rien */ } this.setState({ staffCode: '' }); }
               if (d.error === 'price_changed') this.loadTarifs();   // tarifs changés entre-temps : on affiche les nouveaux
               this.setState({ sending: false, orderError: d.message || 'Commande impossible, réessayez.', fieldErrors: d.fields || {} }); return;
             }
             try { localStorage.removeItem(STORE_KEY); } catch (e) { /* rien */ }
+            this.setState({ staffPrice: '' });
             this.setState({ sending: false, done: Object.assign({ email: s.customer.email }, d) });
             window.scrollTo(0, 0);
           })

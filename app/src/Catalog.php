@@ -183,6 +183,68 @@ final class Catalog
         return self::prices();
     }
 
+    // ─── Mode atelier : composition libre, saisie à la boutique ───────────
+    /** @var string|null */
+    private static $staffFile = null;
+
+    public static function setStaffFile(string $file): void
+    {
+        self::$staffFile = $file;
+    }
+
+    public static function staffEnabled(): bool
+    {
+        return self::$staffFile !== null && is_file(self::$staffFile);
+    }
+
+    /** Vérifie le code atelier (haché sur le serveur, jamais dans la page). */
+    public static function staffCheck(string $code): bool
+    {
+        if (!self::staffEnabled() || $code === '') {
+            return false;
+        }
+        $d = json_decode((string) file_get_contents(self::$staffFile), true);
+        return is_array($d) && !empty($d['hash']) && password_verify($code, $d['hash']);
+    }
+
+    /** Enregistre le code atelier envoyé par printnest-web ; vide = mode atelier coupé. */
+    public static function saveStaff(string $code): bool
+    {
+        if (!self::$staffFile) {
+            throw new \RuntimeException('Fichier du code atelier non configuré');
+        }
+        if ($code === '') {
+            if (is_file(self::$staffFile)) {
+                unlink(self::$staffFile);
+            }
+            return false;
+        }
+        if (mb_strlen($code) < 6 || mb_strlen($code) > 64) {
+            throw new HttpError(422, 'Code atelier : 6 à 64 caractères.', 'bad_code');
+        }
+        $tmp = self::$staffFile . '.tmp';
+        if (file_put_contents($tmp, json_encode(['hash' => password_hash($code, PASSWORD_DEFAULT), 'updated_at' => date('c')])) === false
+            || !rename($tmp, self::$staffFile)) {
+            throw new \RuntimeException('Écriture du code atelier impossible');
+        }
+        return true;
+    }
+
+    /** Prix d'une commande atelier : toutes les planches au prix unitaire, sans règle de pack. */
+    public static function staffQuote(array $counts): array
+    {
+        $unit = self::unitCents();
+        $extras = [];
+        $total = 0;
+        foreach ($counts as $f => $n) {
+            if ($n > 0) {
+                $extras[] = ['format' => $f, 'qty' => $n, 'unit_ttc_cents' => $unit[$f]];
+                $total += $n * $unit[$f];
+            }
+        }
+        return ['ok' => true, 'pack' => 'atelier', 'extras' => $extras, 'ttc_cents' => $total];
+    }
+
     /** Packs en vigueur, du moins cher au plus cher : id => {label, cents, content, note, badge}. */
     public static function packs(): array
     {

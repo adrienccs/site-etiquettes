@@ -100,10 +100,21 @@ final class Orders
             throw new HttpError(422, sprintf('%d planches au maximum par carnet : appelez-nous pour une plus grosse commande.', Catalog::MAX_PLANCHES), 'too_many');
         }
 
+        // Mode atelier (code saisi à la boutique) : composition libre, planches au prix unitaire,
+        // ou prix total fixé à la main
+        $staff = isset($in['staff_code']) && is_string($in['staff_code']) && $in['staff_code'] !== '';
+        if ($staff && !Catalog::staffCheck($in['staff_code'])) {
+            throw new HttpError(403, 'Code atelier incorrect.', 'bad_staff_code');
+        }
         // Prix recalculé ici, jamais repris du navigateur
-        $quote = Catalog::quote($counts);
+        $quote = $staff ? Catalog::staffQuote($counts) : Catalog::quote($counts);
         if (!$quote['ok']) {
             throw new HttpError(422, Catalog::missingMessage($quote), 'no_pack');
+        }
+        if ($staff && isset($in['staff_ttc_cents']) && is_int($in['staff_ttc_cents'])
+            && $in['staff_ttc_cents'] >= 0 && $in['staff_ttc_cents'] <= 100000) {
+            $quote['ttc_cents'] = $in['staff_ttc_cents'];
+            $quote['manual'] = true;
         }
         $ttc = $quote['ttc_cents'];
         $expected = $in['expected_ttc_cents'] ?? null;
@@ -111,7 +122,8 @@ final class Orders
             throw new HttpError(409, 'Le prix a changé : ' . Util::euros($ttc) . '. Merci de vérifier avant de valider.', 'price_changed',
                 ['ttc_cents' => $ttc]);
         }
-        $pack = Catalog::packs()[$quote['pack']];
+        $pack = $staff ? ['label' => empty($quote['manual']) ? 'Commande atelier' : 'Commande atelier (prix fixé)', 'cents' => 0]
+                       : Catalog::packs()[$quote['pack']];
         $pricing = [
             'pack' => ['id' => $quote['pack'], 'label' => $pack['label'], 'ttc_cents' => $pack['cents']],
             'extras' => $quote['extras'],
@@ -130,6 +142,9 @@ final class Orders
             $n = (int) $db->value('SELECT LAST_INSERT_ID()');
             $ref = sprintf('E%02d-%04d', $yy, $n);
             $note = trim((string) ($in['note'] ?? ''));
+            if ($pricing['pack']['id'] === 'atelier') {
+                $note = trim('[Commande atelier] ' . $note);
+            }
             $db->run(
                 'INSERT INTO orders (ref, customer_name, customer_email, customer_phone, consent_at, consent_ip, note,
                                      planches, pack, pricing, vat_rate, ttc_cents, ht_cents)
