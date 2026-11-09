@@ -232,6 +232,30 @@ t('tarifs : défaut, modification signée, prix appliqué, retour', function () 
     eq(1900, http('GET', '/api/tarifs')['json']['from_cents']);
 });
 
+echo "Mode atelier\n";
+t('atelier : code posé par le NAS, composition libre, prix unitaire ou fixé, code faux refusé', function () use ($customer, $design) {
+    eq(false, nas('GET', '/api/nas/ping')['json']['atelier']);
+    eq(403, http('POST', '/api/atelier', ['code' => 'nimporte'])['code']);
+    eq(422, nas('POST', '/api/nas/atelier', ['code' => 'abc'])['code']);
+    eq(200, nas('POST', '/api/nas/atelier', ['code' => 'boutique-2026'])['code']);
+    eq(true, nas('GET', '/api/nas/ping')['json']['atelier']);
+    eq(403, http('POST', '/api/atelier', ['code' => 'mauvais'])['code']);
+    eq(200, http('POST', '/api/atelier', ['code' => 'boutique-2026'])['code']);
+    $only = [['format' => 'chaussure', 'qty' => 3, 'design' => $design]];
+    eq(422, http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'planches' => $only])['code']);
+    eq(403, http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'planches' => $only, 'staff_code' => 'mauvais'])['code']);
+    $o = http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'planches' => $only, 'staff_code' => 'boutique-2026', 'expected_ttc_cents' => 600]);
+    eq(201, $o['code'], json_encode($o['json'])); eq(600, $o['json']['ttc_cents']);
+    $d = nas('GET', '/api/nas/orders/' . $o['json']['ref'])['json'];
+    eq('atelier', $d['pricing']['pack']['id']); ok(strpos($d['note'], '[Commande atelier]') === 0);
+    $o = http('POST', '/api/orders', ['customer' => $customer, 'consent' => true, 'planches' => $only, 'staff_code' => 'boutique-2026',
+        'staff_ttc_cents' => 1500, 'expected_ttc_cents' => 1500]);
+    eq(201, $o['code']); eq(1500, $o['json']['ttc_cents']);
+    eq(200, nas('POST', '/api/nas/atelier', ['code' => ''])['code']);
+    eq(false, nas('GET', '/api/nas/ping')['json']['atelier']);
+    eq(403, http('POST', '/api/atelier', ['code' => 'boutique-2026'])['code']);
+});
+
 echo "Tâche planifiée\n";
 t('purge sans erreur', function () use ($root) {
     exec('ETIQUETTES_CONFIG=' . escapeshellarg(__DIR__ . '/config.test.php') . ' php ' . escapeshellarg($root . '/cron/purge.php') . ' 2>&1', $out, $code);
