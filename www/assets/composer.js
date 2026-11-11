@@ -301,6 +301,8 @@ class Component {
       this.setState({ welcome: false, common: Object.assign({}, s.common, { name: d.name.trim(), line2: (d.line2 || '').trim() }) });
     };
 
+    // présence en direct (assets/live.js) : étape, planches et montant, rien d'autre ; pas compté en mode atelier
+    window.etqLive = staffOn ? null : { step: s.done ? 'commande' : s.checkout ? 'recap' : 'composer', items: total, cents: packOk ? best.price : 0 };
     return {
       name: cur.name, line2: cur.line2, picto: cur.picto,
       displayName: big.text, hasLine2: big.has2, line2Upper: (cur.line2 || '').toUpperCase(),

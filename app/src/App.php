@@ -22,6 +22,8 @@ final class App
     public $nasAuth;
     /** @var RateLimiter */
     public $limiter;
+    /** @var Live */
+    public $live;
 
     public function __construct(array $cfg)
     {
@@ -36,6 +38,7 @@ final class App
             new Emails($cfg['shop'], $cfg['base_url']), $cfg);
         $this->nasAuth = new NasAuth($this->db, $cfg['nas']);
         $this->limiter = new RateLimiter($this->db);
+        $this->live = new Live($this->db);
     }
 
     public function handle(Request $req): void
@@ -92,6 +95,12 @@ final class App
             Response::json(200, ['ok' => true]);
         });
 
+        // Présence en direct (navigator.sendBeacon, corps JSON en text/plain) : toujours 204
+        $r->add('POST', '/api/stats/live', function (Request $q) {
+            $this->live->ping($q);
+            http_response_code(204);
+        });
+
         $r->add('GET', '/api/tarifs', function (Request $q) {
             header('Cache-Control: public, max-age=60');
             Response::json(200, Catalog::publicPrices());
@@ -131,6 +140,9 @@ final class App
                 'tarifs' => Catalog::prices(),
                 'atelier' => Catalog::staffEnabled(),
             ]);
+        }));
+        $r->add('GET', '/api/nas/stats/live', $nas(function (Request $q) {
+            Response::json(200, $this->live->report());
         }));
         $r->add('GET', '/api/nas/tarifs', $nas(function (Request $q) {
             Response::json(200, Catalog::prices());
