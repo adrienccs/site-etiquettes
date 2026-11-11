@@ -12,7 +12,7 @@ if (PHP_VERSION_ID < 70400) {
 date_default_timezone_set('Europe/Paris');
 mb_internal_encoding('UTF-8');
 
-foreach (['Http', 'Util', 'Db', 'Storage', 'Security', 'GmailApi', 'Mailer', 'Catalog', 'Emails', 'Images', 'Orders', 'App'] as $f) {
+foreach (['Http', 'Util', 'Db', 'Storage', 'Security', 'GmailApi', 'Mailer', 'Catalog', 'Emails', 'Images', 'Orders', 'Live', 'App'] as $f) {
     require_once __DIR__ . '/src/' . $f . '.php';
 }
 

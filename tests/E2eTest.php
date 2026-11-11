@@ -256,6 +256,32 @@ t('atelier : code posé par le NAS, composition libre, prix unitaire ou fixé, c
     eq(403, http('POST', '/api/atelier', ['code' => 'boutique-2026'])['code']);
 });
 
+echo "Présence en direct\n";
+t('signaux du navigateur, sans IP, bots et étapes inconnues ignorés', function () {
+    global $pdo;
+    $ip = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
+    $mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15';
+    $beacon = function (array $d, string $ua) { return http('POST', '/api/stats/live', json_encode($d), ['Content-Type: text/plain', 'User-Agent: ' . $ua])['code']; };
+    eq(204, $beacon(['step' => 'accueil'], $ip));
+    eq(204, $beacon(['step' => 'composer', 'items' => 6, 'cents' => 2500], $ip));       // même visiteur : mis à jour
+    eq(204, $beacon(['step' => 'recap', 'items' => 9, 'cents' => 3400], $mac));
+    eq(204, $beacon(['step' => 'accueil'], 'Mozilla/5.0 (compatible; Googlebot/2.1)'));
+    eq(204, $beacon(['step' => 'pirate'], $mac));
+    eq(204, http('POST', '/api/stats/live', '{pas du json', ['User-Agent: ' . $mac])['code']);
+    eq(2, (int) $pdo->query('SELECT count(*) FROM stats_live')->fetchColumn());
+    ok(strpos(json_encode($pdo->query('SELECT * FROM stats_live')->fetchAll(PDO::FETCH_ASSOC)), '127.0.0.1') === false, 'IP trouvée');
+});
+t('rapport NAS : le plus avancé en premier', function () {
+    $r = nas('GET', '/api/nas/stats/live');
+    eq(200, $r['code'], $r['text']);
+    eq(2, $r['json']['count']);
+    eq('recap', $r['json']['visitors'][0]['step']);
+    eq(9, $r['json']['visitors'][0]['items']);
+    eq('desktop', $r['json']['visitors'][0]['device']);
+    eq(['composer', 6, 2500, 'mobile'], [$r['json']['visitors'][1]['step'], $r['json']['visitors'][1]['items'], $r['json']['visitors'][1]['cents'], $r['json']['visitors'][1]['device']]);
+    eq(401, http('GET', '/api/nas/stats/live')['code']);
+});
+
 echo "Tâche planifiée\n";
 t('purge sans erreur', function () use ($root) {
     exec('ETIQUETTES_CONFIG=' . escapeshellarg(__DIR__ . '/config.test.php') . ' php ' . escapeshellarg($root . '/cron/purge.php') . ' 2>&1', $out, $code);

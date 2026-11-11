@@ -8,6 +8,7 @@ declare(strict_types=1);
  *   - nonces NAS et compteurs de limites expirés
  *   - emails en échec : nouvel essai
  *   - commandes de plus de 3 ans : supprimées (RGPD)
+ *   - présence en direct : effacée après 30 min sans nouvelles
  */
 
 require __DIR__ . '/../app/bootstrap.php';
@@ -50,6 +51,13 @@ foreach ($old as $o) {
     $db->run('DELETE FROM orders WHERE id = :o', [':o' => $o['id']]);
 }
 $report['commandes_expirees'] = count($old);
+
+// Présence en direct : plus de 30 min sans nouvelles, sels des jours passés
+try {
+    $report['presence'] = $app->live->purge();
+} catch (\Throwable $e) {
+    $report['presence'] = 'tables absentes (sql/migrations/en-direct.sql à importer)';
+}
 
 $app->storage->log('info', 'purge', $report);
 if (PHP_SAPI === 'cli') {
