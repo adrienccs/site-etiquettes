@@ -199,19 +199,27 @@ final class Emails
 
     private function layout(string $title, string $content): string
     {
-        return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' . Util::h($title) . '</title>'
+        $site = preg_replace('#^https?://#', '', $this->baseUrl);
+        $stripe = '';
+        foreach (['#EE5F90', '#F05A2E', '#A8292C', '#B03C92'] as $c) {
+            $stripe .= '<td width="25%" height="6" style="height:6px;line-height:6px;font-size:0;background:' . $c . '">&nbsp;</td>';
+        }
+        return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . Util::h($title) . '</title>'
             . '<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,700;0,800;1,800&display=swap" rel="stylesheet"></head>'
             . '<body style="margin:0;background:#F4F4F1;font-family:\'Archivo\',Arial,Helvetica,sans-serif;color:#2D2D31">'
-            . '<table role="presentation" width="100%" style="background:#F4F4F1"><tr><td align="center" style="padding:24px 12px">'
-            . '<table role="presentation" width="100%" style="max-width:560px;background:#FFFFFF;border-radius:14px;overflow:hidden">'
-            . '<tr><td style="background:#2D2D31;color:#FFFFFF;padding:18px 24px;font-size:20px;font-weight:800;font-style:italic">'
-            . 'COPY COLOR <span style="color:#B1D36B">/</span> <span style="font-weight:400;font-size:15px">étiquettes</span></td></tr>'
-            . '<tr><td style="height:4px;background:linear-gradient(90deg,#EE5F90 25%,#F05A2E 25% 50%,#A8292C 50% 75%,#B03C92 75%)"></td></tr>'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F4F1"><tr><td align="center" style="padding:24px 12px">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #E2E2DD">'
+            // en-tête commun des mails Copy Color : logo + nom du site + bandeau 4 couleurs
+            . '<tr><td style="padding:20px 24px 16px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+            . '<td style="vertical-align:middle"><a href="' . Util::h($this->baseUrl) . '"><img src="' . Util::h($this->baseUrl) . '/assets/logo.png" width="107" height="56" alt="Copy Color Service" style="display:block;border:0;width:107px;height:56px"></a></td>'
+            . '<td align="right" style="vertical-align:middle"><span style="display:inline-block;background:#F4F4F1;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:800;font-style:italic;color:#2D2D31">étiquettes</span></td>'
+            . '</tr></table></td></tr>'
+            . '<tr><td style="padding:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>' . $stripe . '</tr></table></td></tr>'
             . '<tr><td style="padding:24px;font-size:15px;line-height:1.5">'
-            . '<h1 style="font-size:22px;margin:0 0 12px">' . Util::h($title) . '</h1>' . $content
+            . '<h1 style="font-size:22px;font-weight:800;margin:0 0 12px">' . Util::h($title) . '</h1>' . $content
             . '</td></tr></table>'
             . '<p style="font-size:12px;color:#66666B;margin:16px 0 0">' . Util::h($this->shop['name'] . ' · ' . $this->shop['address'] . ' · ' . $this->shop['phone'])
-            . '<br>Fabriqué dans notre atelier de Bressuire · <a href="' . Util::h($this->baseUrl) . '" style="color:#66666B">' . Util::h(preg_replace('#^https?://#', '', $this->baseUrl)) . '</a></p>'
+            . '<br>Fabriqué dans notre atelier de Bressuire · <a href="' . Util::h($this->baseUrl) . '" style="color:#66666B">' . Util::h($site) . '</a></p>'
             . '</td></tr></table></body></html>';
     }
 }
