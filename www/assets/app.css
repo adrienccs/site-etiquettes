@@ -45,9 +45,7 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke
 
 /* Boutons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:50px;padding:0 18px;border-radius:var(--r);border:1px solid var(--line2);background:#fff;font-weight:700;font-size:15px;cursor:pointer;text-decoration:none;color:var(--ink);white-space:nowrap}
-.btn:hover{border-color:#b9b9b2}
 .btn-lime{background:var(--acc);border-color:var(--acc);color:var(--on-acc);font-weight:800}
-.btn-lime:hover{filter:brightness(.94)}
 .btn-big{height:56px;font-size:16px;padding:0 24px}
 .btn:disabled{opacity:.55;cursor:progress}
 .wide{width:100%}.grow{flex:1}
@@ -106,7 +104,7 @@ main{flex:1;width:100%}
 .shopcard p{margin:8px 0 0}
 .final{margin:44px 0 0;background:var(--acc);color:var(--on-acc);padding:48px 20px;display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center}
 .final h2{font-size:calc(44px * var(--tfz));line-height:1;margin:0;font-family:var(--tf);font-style:var(--tfs);font-weight:var(--tfw);font-stretch:var(--tfx);letter-spacing:var(--tfl);text-transform:var(--tft)}
-.btn-ink{background:var(--dark);border-color:var(--dark);color:var(--on-dark)}.btn-ink:hover{filter:brightness(.85)}
+.btn-ink{background:var(--dark);border-color:var(--dark);color:var(--on-dark)}
 .home-bar{display:none}
 /* Liste */
 .step-photos #paneList{display:block}
@@ -346,3 +344,19 @@ body.pro #coForm > label.in,body.pro #coForm > .two,body.pro #coForm > label.che
 .top{position:sticky;top:0;z-index:40;padding:12px max(24px,calc((100% - 1192px) / 2));border-bottom:4px solid transparent;border-image:linear-gradient(90deg,var(--s1) 0 25%,var(--s2) 25% 50%,var(--s3) 50% 75%,var(--s4) 75% 100%) 1}
 .top + .stripes{display:none}
 @media (max-width:640px){.top{padding:10px 16px}.brand{--lh:44px}}
+
+/* ─── Sensation « app » sur téléphone et finitions (nov. 2026, comme photo.copycolor.fr) ─── */
+html{-webkit-tap-highlight-color:transparent}
+a,button,label,summary,select,[role=button]{touch-action:manipulation}
+button,.btn,[role=button]{-webkit-user-select:none;user-select:none}
+/* Retour immédiat à l'appui : le bouton s'enfonce légèrement */
+button,.btn{transition:transform .16s cubic-bezier(.23,1,.32,1)}
+button:active,.btn:active{transform:scale(.97)}
+button:disabled:active,.btn:disabled:active{transform:none}
+@media (prefers-reduced-motion:reduce){button,.btn{transition:none}button:active,.btn:active{transform:none}}
+/* Survols : seulement avec une vraie souris (sur téléphone, ils restaient « collés » après un appui) */
+@media (hover:hover) and (pointer:fine){
+  .btn:hover{border-color:#b9b9b2}
+  .btn-lime:hover{filter:brightness(.94)}
+  .btn-ink:hover{filter:brightness(.85)}
+}
